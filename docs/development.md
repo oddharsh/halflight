@@ -39,5 +39,16 @@ cd packages/halflight && npm run build && npm test         # wasm + the JS surfa
 
 ## Toolchain
 
-MSRV 1.75 (checked in CI). The wasm build wants `wasm32-unknown-unknown`,
-`wasm-pack`, and `wasm-opt` (binaryen) on the path.
+`rust-toolchain.toml` pins the development toolchain, and CI reads the pin
+out of that file so it is declared once. `clippy -D warnings` is a gate
+against that fixed lint set; a `stable` that moves under it is how the seed's
+first CI run went red with no code change. MSRV is 1.75 and is checked on its
+own toolchain in CI.
+
+`Cargo.lock` is lockfile version 3 and must stay there: the MSRV job's cargo
+1.75 cannot read version 4, which newer cargo writes for a fresh lock. cargo
+keeps an existing older version rather than bumping it, so this only matters
+if the file is ever deleted and regenerated.
+
+The wasm build wants `wasm32-unknown-unknown`, `wasm-pack`, and `wasm-opt`
+(binaryen) on the path.
