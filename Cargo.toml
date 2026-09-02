@@ -1,0 +1,19 @@
+[workspace]
+resolver = "2"
+members = ["crates/halflight", "crates/halflight-wasm", "conformance"]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.75"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/oddharsh/halflight"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+
+# The wasm surface optimises for size: it ships over the wire, and the kernel
+# is memory-bound enough that "s" costs it little. Measured in CI's size step.
+[profile.release.package.halflight-wasm]
+opt-level = "s"

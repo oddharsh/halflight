@@ -1,0 +1,17 @@
+{
+  "name": "halflight",
+  "version": "0.1.0",
+  "description": "Image resampling where averaging encoded values is unrepresentable. Planar linear f32 in and out. Rust core, zero dependencies, compiled to wasm.",
+  "license": "MIT OR Apache-2.0",
+  "repository": "github:oddharsh/halflight",
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "files": ["index.js", "index.d.ts", "pkg/halflight_wasm.js", "pkg/halflight_wasm_bg.wasm", "pkg/halflight_wasm.d.ts"],
+  "sideEffects": false,
+  "scripts": {
+    "build": "wasm-pack build ../../crates/halflight-wasm --release --target web --out-dir ../../packages/halflight/pkg --out-name halflight_wasm",
+    "test": "node --test test.mjs"
+  },
+  "keywords": ["image", "resize", "resample", "linear-light", "gamma", "wasm"]
+}

@@ -1,0 +1,56 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: The crate's own tests, doctest included
+        run: cargo test -p halflight
+      - name: Conformance gates (checkerboard, parity against image and fast_image_resize)
+        run: cargo test -p conformance -- --nocapture
+      - name: MSRV
+        run: |
+          rustup toolchain install 1.75 --profile minimal --no-self-update
+          cargo +1.75 check -p halflight
+
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - name: Build the npm package
+        run: npm run build
+        working-directory: packages/halflight
+      - name: Test it from JavaScript
+        run: npm test
+        working-directory: packages/halflight
+      - name: Size of the wasm on the wire
+        run: |
+          raw=$(wc -c < packages/halflight/pkg/halflight_wasm_bg.wasm)
+          gz=$(gzip -9c packages/halflight/pkg/halflight_wasm_bg.wasm | wc -c)
+          echo "halflight_wasm_bg.wasm: $raw B raw, $gz B gzip"
+          test "$gz" -lt 40000 || { echo "wasm grew past the 40 KB gzip budget"; exit 1; }

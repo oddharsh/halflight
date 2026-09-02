@@ -1,0 +1,24 @@
+name: Bench
+# Advisory and manual. A number that blocks a merge trains people to widen the
+# threshold; a number that reports trains people to read it.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: The matrix, one process per cell, best of 5
+        run: cargo run --release -p conformance -- bench --runs 5 | tee bench.md
+      - name: The checkerboard, every path
+        run: cargo run --release -p conformance -- checkerboard | tee -a bench.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench
+          path: bench.md

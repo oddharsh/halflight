@@ -1,0 +1,7 @@
+/target
+/packages/halflight/pkg
+/packages/halflight/node_modules
+/conformance/corpus
+*.log
+*.out
+measure.done

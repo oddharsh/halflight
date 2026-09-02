@@ -1,0 +1,19 @@
+[package]
+name = "conformance"
+version = "0.0.0"
+publish = false
+description = "Reference oracles and gates for halflight: the checkerboard measurement as a test, differential parity against image and fast_image_resize, and the isolated-process benchmark matrix. Never published."
+edition.workspace = true
+license.workspace = true
+
+# The incumbents are ordinary dependencies rather than dev-dependencies because
+# the bench binary needs them, and a bin cannot see dev-deps. This package is
+# never published, so the weight lands nowhere.
+[dependencies]
+halflight = { path = "../crates/halflight" }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+fast_image_resize = { version = "6.1", default-features = false }
+
+[[bin]]
+name = "conformance"
+path = "src/main.rs"

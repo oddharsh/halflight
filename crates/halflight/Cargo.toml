@@ -1,0 +1,16 @@
+[package]
+name = "halflight"
+version = "0.1.0"
+description = "Image resampling where averaging encoded values is unrepresentable. Planar linear f32 in, planar linear f32 out. Zero dependencies."
+keywords = ["image", "resize", "resample", "linear-light", "gamma"]
+categories = ["multimedia::images"]
+readme = "../../README.md"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[lib]
+crate-type = ["rlib"]
