@@ -5,7 +5,7 @@ members = ["crates/halflight", "crates/halflight-wasm", "conformance"]
 [workspace.package]
 edition = "2021"
 rust-version = "1.75"
-license = "MIT OR Apache-2.0"
+license = "MIT"
 repository = "https://github.com/oddharsh/halflight"
 
 [profile.release]

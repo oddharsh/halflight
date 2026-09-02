@@ -2,7 +2,7 @@
   "name": "halflight",
   "version": "0.1.0",
   "description": "Image resampling where averaging encoded values is unrepresentable. Planar linear f32 in and out. Rust core, zero dependencies, compiled to wasm.",
-  "license": "MIT OR Apache-2.0",
+  "license": "MIT",
   "repository": "github:oddharsh/halflight",
   "type": "module",
   "main": "./index.js",

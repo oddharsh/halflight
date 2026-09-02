@@ -164,4 +164,4 @@ oracles and the bench, is borrowed from
 
 ## License
 
-MIT OR Apache-2.0, at your option.
+MIT.
