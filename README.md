@@ -121,6 +121,22 @@ you its mapper path is the faster correct option today. What `halflight`
 offers is that the correct path is the *only* path, at f32, with zero
 dependencies and a surface small enough to read in one sitting.
 
+### Real photos
+
+Synthetic noise is photo-shaped, not a photo. The same paths over 46 straight-
+out-of-camera JPEGs (24 MP Fujifilm and Leica frames, long edge to 900 px, Box
+unless noted), mean of best-of-5 per file:
+
+| path | ms | colour |
+|---|---:|---|
+| `fast_image_resize`, default U8x3 | 10.9 | **wrong** |
+| `fast_image_resize`, sRGB mapper → U16x3 → back | 44.7 | correct |
+| `halflight`, u8 whole job | 61.9 | correct |
+| `image`, default, Lanczos3 | 230.0 | **wrong** |
+
+`cargo run --release -p conformance -- corpus <dir>` reproduces it on any
+directory of JPEG or PNG files.
+
 Methodology, caveats and the wasm size budget are in
 [how-it-works.md](docs/how-it-works.md). `pnpm`-style reproducibility:
 `cargo run --release -p conformance -- bench`.
