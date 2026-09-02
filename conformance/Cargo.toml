@@ -12,7 +12,11 @@ license.workspace = true
 [dependencies]
 halflight = { path = "../crates/halflight" }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
-fast_image_resize = { version = "6.1", default-features = false }
+# Default features on purpose: `default-features = false` selects fir's no_std
+# shim, whose x86 runtime SIMD dispatch then references `cpufeatures` without
+# depending on it, and the build dies on x86_64 (first CI run, 2026-09-02). On an
+# arm64 workstation those cfgs are dead code, which is how it compiled locally.
+fast_image_resize = "6.1"
 
 [[bin]]
 name = "conformance"
