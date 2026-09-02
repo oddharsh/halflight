@@ -150,7 +150,9 @@ pub fn fir_f32(src: &[f32], sw: usize, sh: usize, dw: usize, dh: usize, f: Filte
     let mut dst = Image::new(dw as u32, dh as u32, PixelType::F32x3);
     Resizer::new().resize(&src_img, &mut dst, &fir_opts(f)).unwrap();
     dst.into_vec()
-        .chunks_exact(4)
-        .map(|b| f32::from_ne_bytes([b[0], b[1], b[2], b[3]]))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|b| f32::from_ne_bytes(*b))
         .collect()
 }

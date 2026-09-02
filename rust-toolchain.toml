@@ -1,0 +1,9 @@
+# Pinned so `clippy -D warnings` is a gate against a fixed lint set rather than
+# against whatever `stable` means this week. The first CI run after seeding
+# went red on a lint that did not exist on the workstation's 1.93, with no
+# code change between the two. Bump deliberately; the MSRV job checks 1.75
+# separately and does not read this file.
+[toolchain]
+channel = "1.98.0"
+components = ["clippy", "rustfmt"]
+targets = ["wasm32-unknown-unknown"]
