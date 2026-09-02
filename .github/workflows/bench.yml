@@ -12,7 +12,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master   # reads rust-toolchain.toml
+      - name: Read the toolchain pin (rust-toolchain.toml is the one declaration)
+        id: pin
+        run: echo "channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.pin.outputs.channel }}
+          components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
       - name: The matrix, one process per cell, best of 5
         run: cargo run --release -p conformance -- bench --runs 5 | tee bench.md
