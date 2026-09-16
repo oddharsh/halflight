@@ -291,6 +291,32 @@ pub fn srgb_lut() -> &'static [f32; 256] {
     SRGB_LUT.get_or_init(|| std::array::from_fn(|i| srgb_to_linear_exact(i as u8)))
 }
 
+static SRGB_LUT16: std::sync::OnceLock<Box<[f32]>> = std::sync::OnceLock::new();
+
+/// The sRGB decode table for all 65,536 unsigned 16-bit values.
+///
+/// Values are normalized by 65535 and evaluated with the same transfer curve
+/// as the 8-bit table. There is no interpolation or 8-bit intermediate. Take
+/// the table once and index it inside the sample loop.
+///
+/// Its 256 KiB allocation is initialized lazily, directly on the heap, and
+/// retained for the process lifetime. Calls to the 8-bit API do not allocate it.
+///
+/// ```
+/// let table = halflight::srgb_lut16();
+/// let encoded: u16 = 40000;
+/// let linear: f32 = table[encoded as usize];
+/// assert!(linear > 0.0 && linear < 1.0);
+/// ```
+#[inline]
+pub fn srgb_lut16() -> &'static [f32] {
+    SRGB_LUT16.get_or_init(|| {
+        (0..=u16::MAX)
+            .map(|c| srgb_to_linear_normalized(c as f32 / 65535.0))
+            .collect()
+    })
+}
+
 /// sRGB-encoded 8-bit value to linear light in `0.0..=1.0`.
 #[inline]
 pub fn srgb_to_linear(c: u8) -> f32 {
@@ -313,7 +339,10 @@ pub fn encode_srgb(src: &[f32]) -> Vec<u8> {
 }
 
 fn srgb_to_linear_exact(c: u8) -> f32 {
-    let s = c as f32 / 255.0;
+    srgb_to_linear_normalized(c as f32 / 255.0)
+}
+
+fn srgb_to_linear_normalized(s: f32) -> f32 {
     if s <= 0.040_449_936 {
         s / 12.92
     } else {
@@ -345,7 +374,27 @@ static G22_LUT: std::sync::OnceLock<[f32; 256]> = std::sync::OnceLock::new();
 /// The gamma-2.2 decode table, 256 entries.
 #[inline]
 pub fn g22_lut() -> &'static [f32; 256] {
-    G22_LUT.get_or_init(|| std::array::from_fn(|i| (i as f32 / 255.0).powf(2.2)))
+    G22_LUT.get_or_init(|| std::array::from_fn(|i| g22_to_linear_normalized(i as f32 / 255.0)))
+}
+
+static G22_LUT16: std::sync::OnceLock<Box<[f32]>> = std::sync::OnceLock::new();
+
+/// The gamma-2.2 decode table for all 65,536 unsigned 16-bit values.
+///
+/// Each entry is `(code / 65535.0).powf(2.2)` in f32, with no interpolation.
+/// Like [`srgb_lut16`], it allocates 256 KiB on the heap on first use and
+/// retains the table for the process lifetime. Take it once outside loops.
+#[inline]
+pub fn g22_lut16() -> &'static [f32] {
+    G22_LUT16.get_or_init(|| {
+        (0..=u16::MAX)
+            .map(|c| g22_to_linear_normalized(c as f32 / 65535.0))
+            .collect()
+    })
+}
+
+fn g22_to_linear_normalized(s: f32) -> f32 {
+    s.powf(2.2)
 }
 
 /// Gamma-2.2-encoded 8-bit value to linear light.
@@ -517,12 +566,17 @@ mod tests {
 
     // The table is an optimisation and must not be a second opinion about sRGB.
     #[test]
-    fn the_lut_agrees_with_the_expression_it_replaces() {
+    fn the_luts_agree_with_the_expressions_they_replace() {
         for c in 0..=255u8 {
             assert_eq!(
                 srgb_to_linear(c).to_bits(),
                 srgb_to_linear_exact(c).to_bits(),
                 "lut disagrees at {c}"
+            );
+            assert_eq!(
+                g22_to_linear(c).to_bits(),
+                (c as f32 / 255.0).powf(2.2).to_bits(),
+                "gamma 2.2 lut disagrees at {c}"
             );
         }
     }
