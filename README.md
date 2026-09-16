@@ -33,6 +33,12 @@ let out = resample(&lin, w, h, 3, 900, 600, Filter::Lanczos3);
 let rgb8 = encode_srgb(&out);                         // linear f32 -> u8, exact round trip
 ```
 
+For 16-bit Rust inputs, `srgb_lut16()` and `g22_lut16()` return tables with all
+65,536 decoded values. Index them directly with the source samples before
+resampling; precision is preserved until the final output conversion. Each
+curve initializes one 256 KiB table on the heap when first used. Existing
+8-bit and JavaScript callers do not allocate these tables.
+
 Zero dependencies. `#![forbid(unsafe_code)]`. MSRV 1.75. Also on npm as a
 13.8 KB (gzip) wasm module with the same three calls.
 

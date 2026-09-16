@@ -28,9 +28,12 @@ cd packages/halflight && npm run build && npm test         # wasm + the JS surfa
   `resample_dyn` must stay bitwise equal, and the test asserts bits, not an
   epsilon. A SIMD rewrite has to preserve per-channel ascending summation or
   re-mint every content-addressed output anyone has built on this.
-- **The transfer tables are not a second opinion about sRGB.** The LUT is
-  built from the exact expression it replaces and a test asserts they agree
-  bitwise at all 256 values. Any faster encode must keep the 8-bit round trip
+- **Transfer tables preserve the scalar formulas.** The LUT is built from
+  the exact expression it replaces. Tests check all 256 8-bit values and all
+  65,536 16-bit values bitwise. The 16-bit integration test initializes both
+  tables on a 128 KiB thread stack; constructing temporary arrays there would
+  overflow it, so those tables are built directly on the heap.
+  Any faster encode must keep the 8-bit round trip
   exact, or it is a different colour space wearing sRGB's name.
 - **The checkerboard test asserts the incumbents are wrong.** If `image` or
   `fast_image_resize` change their default to a linear-light path, that test
