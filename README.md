@@ -147,6 +147,33 @@ Methodology, caveats and the wasm size budget are in
 [how-it-works.md](docs/how-it-works.md). `pnpm`-style reproducibility:
 `cargo run --release -p conformance -- bench`.
 
+## Orientation
+
+A camera stores most portraits sideways and records which way is up in EXIF.
+Orienting the full frame before resampling copies it (311 MB of f32 for a 26 MP
+RGB photo), and for the four orientations that swap axes, the naive copy reads
+its source down a column.
+
+`resample_oriented` takes the stored frame and an `Orientation` (numbered as
+EXIF numbers them) and returns exactly what `resample(&orient(..), ..)` would,
+bit for bit, without building the upright frame. Every accumulator sums the same
+samples in the same order; only the loops around them change. For the
+axis-swapping orientations, every upright row is accumulated at once, so each
+filter tap streams one whole stored row.
+
+On a 6240x4160 RGB frame, three box-filter tiers (600, 400 and 200 px short
+edge), release build, medians of 7:
+
+| | upright input | `resample_oriented` | tiled copy, then `resample` |
+|---|--:|--:|--:|
+| rotate 90 (EXIF 6) | 59 ms | 46 ms | 129 ms |
+| rotate 270 (EXIF 8) | 59 ms | 61 ms | 149 ms |
+
+So orienting inside the resample costs nothing measurable: the streaming read
+matches or beats the plain pass over an upright frame. `orient` is public too,
+the per-pixel definition the test suite holds `resample_oriented` to. The
+JavaScript surface does not expose either yet.
+
 ## Gamma 2.2
 
 Some sources declare a pure power curve rather than sRGB (a Leica M Monochrom's
