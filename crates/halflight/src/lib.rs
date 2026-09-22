@@ -222,6 +222,12 @@ fn resample_fixed<const CH: usize>(
             mid[(y * dw + x) * CH..(y * dw + x + 1) * CH].copy_from_slice(&acc);
         }
     }
+    vertical::<CH>(&mid, sh, dw, dh, f)
+}
+
+/// The vertical pass over a horizontally resampled `mid` of `dw x sh`, shared
+/// by `resample` and `resample_oriented` so the two cannot drift apart.
+fn vertical<const CH: usize>(mid: &[f32], sh: usize, dw: usize, dh: usize, f: Filter) -> Vec<f32> {
     let yplan = plan(sh, dh, f);
     let mut dst = vec![0.0f32; dw * dh * CH];
     for (y, tap) in yplan.iter().enumerate() {
@@ -269,6 +275,219 @@ fn resample_dyn(src: &[f32], sw: usize, sh: usize, ch: usize, dw: usize, dh: usi
         }
     }
     dst
+}
+
+// ── orientation ───────────────────────────────────────────────────────────────
+
+/// The eight ways a frame can sit, numbered as EXIF `Orientation` numbers them.
+///
+/// Each names the transform that brings the stored frame upright. All eight
+/// are pure permutations, so orienting moves samples and invents none: there
+/// is no kernel, no rounding and no dimension constraint.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Orientation {
+    /// 1: already upright.
+    Upright = 1,
+    /// 2: mirrored left to right.
+    MirrorHorizontal = 2,
+    /// 3: rotated 180 degrees.
+    Rotate180 = 3,
+    /// 4: mirrored top to bottom.
+    MirrorVertical = 4,
+    /// 5: mirrored along the main diagonal.
+    Transpose = 5,
+    /// 6: needs a 90 degree clockwise turn.
+    Rotate90 = 6,
+    /// 7: mirrored along the anti-diagonal.
+    Transverse = 7,
+    /// 8: needs a 270 degree clockwise turn.
+    Rotate270 = 8,
+}
+
+impl Orientation {
+    /// The orientation an EXIF `Orientation` value names, or `None` outside 1-8.
+    pub fn from_exif(value: u8) -> Option<Self> {
+        Some(match value {
+            1 => Self::Upright,
+            2 => Self::MirrorHorizontal,
+            3 => Self::Rotate180,
+            4 => Self::MirrorVertical,
+            5 => Self::Transpose,
+            6 => Self::Rotate90,
+            7 => Self::Transverse,
+            8 => Self::Rotate270,
+            _ => return None,
+        })
+    }
+
+    /// Whether the upright frame's width is the stored frame's height.
+    pub fn swaps_axes(self) -> bool {
+        self as u8 >= 5
+    }
+
+    /// The upright size of a stored `w x h` frame.
+    pub fn upright_size(self, w: usize, h: usize) -> (usize, usize) {
+        if self.swaps_axes() {
+            (h, w)
+        } else {
+            (w, h)
+        }
+    }
+
+    /// The stored pixel that upright pixel `(x, y)` shows, for a stored frame
+    /// of `sw x sh`.
+    pub fn source_of(self, x: usize, y: usize, sw: usize, sh: usize) -> (usize, usize) {
+        match self {
+            Self::Upright => (x, y),
+            Self::MirrorHorizontal => (sw - 1 - x, y),
+            Self::Rotate180 => (sw - 1 - x, sh - 1 - y),
+            Self::MirrorVertical => (x, sh - 1 - y),
+            Self::Transpose => (y, x),
+            Self::Rotate90 => (y, sh - 1 - x),
+            Self::Transverse => (sw - 1 - y, sh - 1 - x),
+            Self::Rotate270 => (sw - 1 - y, x),
+        }
+    }
+}
+
+/// Bring a stored frame upright: `src` is `sw x sh` with `ch` interleaved
+/// channels, and the result is the `upright_size` frame in the same layout.
+///
+/// One pixel at a time and obviously right, which is its job: it is the
+/// definition `resample_oriented` is tested against. To orient and then
+/// resample, call `resample_oriented`, which never builds this frame.
+pub fn orient(src: &[f32], sw: usize, sh: usize, ch: usize, o: Orientation) -> Vec<f32> {
+    debug_assert_eq!(src.len(), sw * sh * ch);
+    let (ow, oh) = o.upright_size(sw, sh);
+    let mut out = Vec::with_capacity(src.len());
+    for y in 0..oh {
+        for x in 0..ow {
+            let (sx, sy) = o.source_of(x, y, sw, sh);
+            out.extend_from_slice(&src[(sy * sw + sx) * ch..(sy * sw + sx + 1) * ch]);
+        }
+    }
+    out
+}
+
+/// `resample(&orient(src, sw, sh, ch, o), ow, oh, ch, dw, dh, f)`, BITWISE,
+/// without building the oriented frame. `dw x dh` is the UPRIGHT output size.
+///
+/// A camera stores most portraits sideways, so a photo pipeline orients a full
+/// frame before every resample. That copy is the whole frame again (311 MB of
+/// f32 for a 26 MP RGB photo), and for the four orientations that swap axes the
+/// naive copy reads its source down a column. Here the horizontal pass reads the
+/// stored frame through the orientation instead.
+///
+/// Equality is exact because every accumulator sums the same samples, with the
+/// same weights, in the same order (taps ascending) as the two-step form. Only
+/// the loop order around the accumulators changes: for the axis-swapping four,
+/// an upright ROW is a stored COLUMN, so every upright row is accumulated at
+/// once and each tap streams one whole stored row. That turns the worst access
+/// pattern into the best one, and it runs at or under the cost of resampling an
+/// already-upright frame. The oracle test below holds it to the two-step form
+/// across every orientation, filter and a spread of awkward sizes.
+///
+/// # Panics
+///
+/// In debug builds, if `src.len() != sw * sh * ch`.
+#[allow(clippy::too_many_arguments)]
+pub fn resample_oriented(
+    src: &[f32],
+    sw: usize,
+    sh: usize,
+    ch: usize,
+    o: Orientation,
+    dw: usize,
+    dh: usize,
+    f: Filter,
+) -> Vec<f32> {
+    debug_assert_eq!(src.len(), sw * sh * ch);
+    match (o, ch) {
+        (Orientation::Upright, _) => resample(src, sw, sh, ch, dw, dh, f),
+        (_, 1) => resample_oriented_fixed::<1>(src, sw, sh, o, dw, dh, f),
+        (_, 3) => resample_oriented_fixed::<3>(src, sw, sh, o, dw, dh, f),
+        _ => {
+            let (ow, oh) = o.upright_size(sw, sh);
+            resample_dyn(&orient(src, sw, sh, ch, o), ow, oh, ch, dw, dh, f)
+        }
+    }
+}
+
+fn resample_oriented_fixed<const CH: usize>(
+    src: &[f32],
+    sw: usize,
+    sh: usize,
+    o: Orientation,
+    dw: usize,
+    dh: usize,
+    f: Filter,
+) -> Vec<f32> {
+    let (ow, oh) = o.upright_size(sw, sh);
+    let xplan = plan(ow, dw, f);
+    let mut mid = vec![0.0f32; dw * oh * CH];
+    if !o.swaps_axes() {
+        // An upright row is one stored row, read backwards when mirrored.
+        let rev = matches!(o, Orientation::MirrorHorizontal | Orientation::Rotate180);
+        for y in 0..oh {
+            let (_, sy) = o.source_of(0, y, sw, sh);
+            let row = &src[sy * sw * CH..(sy + 1) * sw * CH];
+            for (x, tap) in xplan.iter().enumerate() {
+                let mut acc = [0.0f32; CH];
+                for (k, w) in tap.weights.iter().enumerate() {
+                    let ux = tap.first + k;
+                    let sx = if rev { sw - 1 - ux } else { ux };
+                    let p = &row[sx * CH..(sx + 1) * CH];
+                    for c in 0..CH {
+                        acc[c] += p[c] * w;
+                    }
+                }
+                mid[(y * dw + x) * CH..(y * dw + x + 1) * CH].copy_from_slice(&acc);
+            }
+        }
+    } else {
+        // Upright (ux, y) is stored (sx(y), sy(ux)): the stored column depends
+        // on the upright row alone, and the stored row on the upright column
+        // alone. So one tap, for EVERY upright row at once, is one whole stored
+        // row read front to back (oh == sw here), or back to front when x is
+        // mirrored. Each accumulator still takes exactly one add per tap, in
+        // tap order, which is what keeps this bitwise equal to the two-step form.
+        //
+        // Accumulating all rows together is the measured optimum rather than a
+        // simplification. On a 6240x4160 RGB frame, three box tiers, blocks of
+        // 64 rows took 174/240 ms at orientations 6/8 and each doubling helped
+        // until one block spanned the frame: 55/62 ms, against 61 ms to resample
+        // an already-upright frame and 131/149 ms for a tiled copy first. The
+        // accumulators are one row's worth, 75 KB for that frame.
+        let rev_x = matches!(o, Orientation::Transverse | Orientation::Rotate270);
+        let rev_y = matches!(o, Orientation::Rotate90 | Orientation::Transverse);
+        let mut acc = vec![[0.0f32; CH]; oh];
+        for (x, tap) in xplan.iter().enumerate() {
+            acc.fill([0.0f32; CH]);
+            for (k, w) in tap.weights.iter().enumerate() {
+                let ux = tap.first + k;
+                let sy = if rev_y { sh - 1 - ux } else { ux };
+                let row = &src[sy * sw * CH..(sy + 1) * sw * CH];
+                if rev_x {
+                    for (a, p) in acc.iter_mut().zip(row.chunks_exact(CH).rev()) {
+                        for c in 0..CH {
+                            a[c] += p[c] * w;
+                        }
+                    }
+                } else {
+                    for (a, p) in acc.iter_mut().zip(row.chunks_exact(CH)) {
+                        for c in 0..CH {
+                            a[c] += p[c] * w;
+                        }
+                    }
+                }
+            }
+            for (y, a) in acc.iter().enumerate() {
+                let i = (y * dw + x) * CH;
+                mid[i..i + CH].copy_from_slice(a);
+            }
+        }
+    }
+    vertical::<CH>(&mid, oh, dw, dh, f)
 }
 
 // ── sRGB transfer ─────────────────────────────────────────────────────────────
@@ -512,6 +731,73 @@ mod tests {
     /// f32, so exact equality is the contract, and an epsilon would let a
     /// reordering SIMD rewrite slip through the exact gate it needs to hit.
     /// Anyone content-addressing the output depends on this.
+    /// `resample_oriented` promises the two-step form bitwise. Sizes include
+    /// degenerate single-row and single-column frames and odd, non-square
+    /// ones; channel counts cover both fixed paths and the dynamic fallback.
+    #[test]
+    fn resample_oriented_matches_orient_then_resample_bitwise() {
+        for (sw, sh) in [
+            (1, 1),
+            (1, 7),
+            (9, 1),
+            (13, 11),
+            (64, 40),
+            (65, 129),
+            (97, 61),
+            (200, 131),
+        ] {
+            for ch in [1usize, 3, 4] {
+                let src: Vec<f32> = (0..sw * sh * ch)
+                    .map(|i| ((i * 2654435761usize) % 1000) as f32 / 999.0)
+                    .collect();
+                for o in (1..=8).map(|v| Orientation::from_exif(v).unwrap()) {
+                    let (ow, oh) = o.upright_size(sw, sh);
+                    let upright = orient(&src, sw, sh, ch, o);
+                    for f in [Filter::Box, Filter::Lanczos3, Filter::Mitchell] {
+                        for (dw, dh) in [
+                            (1, 1),
+                            ((ow / 3).max(1), (oh / 3).max(1)),
+                            (ow, oh),
+                            (ow + 7, oh + 5),
+                        ] {
+                            let want = resample(&upright, ow, oh, ch, dw, dh, f);
+                            let got = resample_oriented(&src, sw, sh, ch, o, dw, dh, f);
+                            assert_eq!(got.len(), want.len());
+                            assert!(
+                                got.iter().zip(&want).all(|(a, b)| a.to_bits() == b.to_bits()),
+                                "{o:?} {f:?} ch={ch} {sw}x{sh} -> {dw}x{dh}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// The per-pixel `orient` is the definition the test above leans on, so it
+    /// is pinned by hand on a frame whose every sample is distinct.
+    #[test]
+    fn orient_matches_hand_computed_answers() {
+        // stored:  1 2 3
+        //          4 5 6
+        let src = [1., 2., 3., 4., 5., 6.];
+        let cases: [(u8, &[f32]); 8] = [
+            (1, &[1., 2., 3., 4., 5., 6.]),
+            (2, &[3., 2., 1., 6., 5., 4.]),
+            (3, &[6., 5., 4., 3., 2., 1.]),
+            (4, &[4., 5., 6., 1., 2., 3.]),
+            (5, &[1., 4., 2., 5., 3., 6.]),
+            (6, &[4., 1., 5., 2., 6., 3.]),
+            (7, &[6., 3., 5., 2., 4., 1.]),
+            (8, &[3., 6., 2., 5., 1., 4.]),
+        ];
+        for (v, want) in cases {
+            let o = Orientation::from_exif(v).unwrap();
+            assert_eq!(orient(&src, 3, 2, 1, o), want, "orientation {v}");
+        }
+        assert!(Orientation::from_exif(0).is_none() && Orientation::from_exif(9).is_none());
+    }
+
     #[test]
     fn fixed_channel_passes_match_the_dynamic_oracle_bitwise() {
         let (sw, sh) = (97, 61); // deliberately awkward, non-square, prime-ish
